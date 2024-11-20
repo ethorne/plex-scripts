@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from contextlib import contextmanager
 import datetime
 from et_logger import *
 import json
@@ -10,13 +9,6 @@ import re
 
 
 OLD_PATH='/media/lucien/media'
-
-@contextmanager
-def indent(logger):
-    logger.indent_increase()
-    yield
-    logger.indent_decrease()
-
 
 def is_good_match(logger, search_result, music_file_path, track_artist, track_album):
     logger.trace(f"looking at search_result: {search_result}", color=Colors.CYAN)
@@ -70,23 +62,26 @@ def is_good_match(logger, search_result, music_file_path, track_artist, track_al
         return True
 
 def main():
-    for required_env_var in ["PLEX_URL", "PLEX_TOKEN"]
-        if required_env_var not in os.environ or os.environ[required_env_var].strip() in [None, ""]:
+    for required_env_var in ["PLEX_URL", "PLEX_TOKEN"]:
+        if required_env_var not in os.environ.keys() or os.environ[required_env_var].strip() in [None, ""]:
             print(f"{required_env_var} not set! run `source setenv.sh` (create from template if it doesn't exist)")
             return False
 
     PLEX_URL = os.environ["PLEX_URL"].strip()
     PLEX_TOKEN = os.environ["PLEX_TOKEN"].strip()
-    LOGGER_LEVER = os.environ["LOG_LEVEL"] if "LOG_LEVEL" in os.environ else LogLevel.INFO
+    LOG_LEVEL = os.environ["LOG_LEVEL"] if "LOG_LEVEL" in os.environ.keys() else LogLevel.INFO
 
-    logger = Logger(os.environ["LOG_LEVEL"])
+    logger = Logger(int(LOG_LEVEL))
 
     plex = PlexServer(PLEX_URL, PLEX_TOKEN)
     tunes = plex.library.section('tunes')
 
     logger = Logger(LogLevel.TRACE)
 
-    results=[]
+    results={
+        "playlists with perfect matches": [],
+        "playlists with discrepancies": []
+    }
     # iterate over all playlists
     for playlist in plex.playlists():
         baddies=[]
@@ -177,12 +172,13 @@ def main():
 
         if len(baddies) == 0 and len(no_match_baddies) == 0:
             logger.info('this playlist had all perfect matches!', color=Colors.GREEN)
+            results["playlists with perfect matches"].append(playlist.title)
             logger.debug("\n---\n")
             logger.indent_decrease()
             continue
 
-        results.append({
-            "playlist": playlist.title.strip(),
+        results["playlists with discrepancies"].append({
+            "playlist": playlist.title,
             "baddies_with_no_match": no_match_baddies,
             "baddies": baddies
         })
@@ -190,10 +186,14 @@ def main():
         logger.indent_decrease()
         logger.debug("\n---\n")
 
-    with open(f"fix-playlists.{str(datetime.datetime.now()).replace(' ', '_')}.json", "w") as f:
+    json_file = f"fix-playlists.{str(datetime.datetime.now()).replace(' ', '_')}.json"
+    with open(json_file, "w") as f:
         json.dump(results, f, indent=2)
-    logger.dump(use_date_suffix=True)
+    log_file = logger.dump(file_name="fix-playlists", use_date_suffix=True)
 
+    logger.info("all done! scope the logs")
+    logger.info(f"json output: {json_file}")
+    logger.info(f"log output: {log_file}")
     return True
 
 if __name__ == "__main__":

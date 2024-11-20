@@ -26,6 +26,12 @@ def colorize(color, bold=False):
     sys.stdout.write(Colors.DEFAULT)
     sys.stdout.flush()
 
+@contextmanager
+def indent(logger):
+    logger.indent_increase()
+    yield
+    logger.indent_decrease()
+
 class Logger:
     def __init__(self, level, indent_step=2):
         if level < LogLevel.TRACE or level > LogLevel.INFO:
@@ -75,9 +81,18 @@ class Logger:
     def info_n(self, message, bold=False, color=Colors.DEFAULT):
         self.log(LogLevel.INFO, message, bold, color, end=" ")
 
-    def dump(file_name="", use_date_suffix=False):
-        if file_name == "" or use_date_suffix:
-            file_name += str(datetime.datetime.now()).replace(' ', '_')
-        file_name += ".log"
-        with open(file_name, "w") as outfile:
+    def clear_history(self):
+        self.history = []
+
+    def dump(self, file_name=None, use_date_suffix=False):
+        parts = []
+        if file_name is not None:
+            parts.append(file_name)
+        if use_date_suffix:
+            parts.append(str(datetime.datetime.now()).replace(' ', '_'))
+        if len(parts) == 0: parts.append("output")
+        parts.append("log")
+        complete_file_name = ".".join(parts)
+        with open(complete_file_name, "w") as outfile:
             outfile.writelines(self.history)
+        return complete_file_name

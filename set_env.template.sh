@@ -1,2 +1,2 @@
-PLEX_URL=''
-PLEX_TOKEN=''
+export PLEX_URL=''
+export PLEX_TOKEN=''
