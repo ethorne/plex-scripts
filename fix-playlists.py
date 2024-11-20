@@ -7,7 +7,6 @@ from plexapi.server import PlexServer # supports python 3.9 as of 2024nov18
 from plexapi.audio import Track
 import re
 
-
 OLD_PATH='/media/lucien/media'
 
 def is_good_match(logger, search_result, music_file_path, track_artist, track_album):
@@ -61,6 +60,46 @@ def is_good_match(logger, search_result, music_file_path, track_artist, track_al
         logger.trace("adding to filtered results!")
         return True
 
+def display_options(logger, options):
+    color=Colors.BLUE
+    for i in range(0, len(options)):
+        option = options[i]
+        logger.info(f"{i+1}. {option.title} - {option.album().title} - {option.artist().title}", color=color)
+        logger.info(f"   file: {option.media[0].parts[0].file}", color=color)
+        logger.info("")
+    logger.info("")
+
+def prompt_for_resolution(logger, plex, music_file_path, initial_options):
+    color=Colors.BLUE
+    with indent(logger):
+        logger.info("")
+        logger.info("looking for match for", color=color)
+        logger.info(music_file_path, color=color)
+        logger.info("")
+        logger.info("options are displayed as: title - album - artist", color=color)
+        logger.info("enter 's' to search", color=color)
+        logger.info("enter 'x' to exit\n", color=color)
+        choice = ""
+
+        options = initial_options
+        while True:
+            display_options(logger, options)
+            choice = input("what do you choose? ")
+            while choice not in [str(i+1) for i in range(0,len(options))] + ["x", "s"]:
+                choice = input("choose again dummy: ")
+            if choice not in ["s", "x"]: return options[int(choice) - 1]
+            if choice == "x": return None
+            query=input("input a search query: ")
+            search_results = plex.search(query)
+            options = []
+            for result in search_results:
+                if not isinstance(result, Track): continue
+                if result.media[0].parts[0].file.count(OLD_PATH) != 0: continue
+                options.append(result)
+
+
+
+
 def main():
     for required_env_var in ["PLEX_URL", "PLEX_TOKEN"]:
         if required_env_var not in os.environ.keys() or os.environ[required_env_var].strip() in [None, ""]:
@@ -71,21 +110,20 @@ def main():
     PLEX_TOKEN = os.environ["PLEX_TOKEN"].strip()
     LOG_LEVEL = os.environ["LOG_LEVEL"] if "LOG_LEVEL" in os.environ.keys() else LogLevel.INFO
 
-    logger = Logger(int(LOG_LEVEL))
+    logger = Logger(level=int(LOG_LEVEL))
 
     plex = PlexServer(PLEX_URL, PLEX_TOKEN)
     tunes = plex.library.section('tunes')
 
-    logger = Logger(LogLevel.TRACE)
-
-    results={
-        "playlists with perfect matches": [],
-        "playlists with discrepancies": []
-    }
+    results={}
     # iterate over all playlists
     for playlist in plex.playlists():
-        baddies=[]
-        no_match_baddies=[]
+        results[playlist.title.strip()] = {
+            "playlist_object":playlist,
+            "tracks": [],
+            "perfect": True,
+            "discrepancies": []
+        }
 
         logger.info(f"looking at playlist \"{playlist.title.strip()}\"", bold=True)
         logger.indent_increase()
@@ -98,11 +136,11 @@ def main():
             music_file_path = track.media[0].parts[0].file
 
             if music_file_path.count(OLD_PATH) == 0:
-                logger.trace(f"looking at {track.title}", color=Colors.BLUE)
+                logger.info(f"looking at {track.title}", color=Colors.BLUE)
                 logger.indent_increase()
                 logger.trace(f"this file looks fine! it's path does not contain {OLD_PATH}")
-                # TODO - add to playlist
                 logger.indent_decrease()
+                results[playlist.title.strip()]["tracks"].append(track)
                 continue
 
             # some of these Track objects are busted and plex has a hard time pulling information
@@ -140,60 +178,130 @@ def main():
                                          None): continue
                     filtered_results.append(search_result)
 
+            ## TODO ##
+            # these next two blocks of searching need work
+            # it's prolly because the track.title is empty?
+            # also, what if i get one filtered_result, eh? i dont think i append it to the playlist tracks
+            # also, how confident can i really be if I just get one? prolly pass it to the prompt either way
+            # on top of that - can this be wrapped up in a better function?
+            # oh, and you have a indent_increase somwhere that's not being decreased later.....
+            num_results = len(filtered_results)
+            if num_results != 1:
+                filtered_results = []
+                logger.info(f"got {num_results} filtered results! searching through the whole server now")
+                logger.indent_increase()
+                query = track.title if track.title else file_name
+                try:
+                    search_results = plex.search(query)
+                    logger.trace(f"number of results: {len(search_results)}", color=Colors.PURPLE)
+                except Exception as e:
+                    logger.info("op! got an exception searching the server", color=Colors.PURPLE)
+                    logger.info("setting search_results=[]", color=Colors.PURPLE)
+                    search_results=[]
+                for search_result in search_results:
+                    if not is_good_match(logger,
+                                         search_result,
+                                         music_file_path,
+                                         track.artist().title,
+                                         track.album().title): continue
+                    filtered_results.append(search_result)
+                logger.indent_decrease()
 
+            num_results = len(filtered_results)
+            if num_results != 1:
+                filtered_results = []
+                logger.info(f"STILL got {num_results} filtered results! searching the whole server but with file parts")
+                logger.indent_increase()
+                # there might be parenthetical with a remix title or something, get rid of that
+                query = f"{file_name.split('(')[0].strip()} {artist_title}"
+                try:
+                    search_results = plex.search(query)
+                    logger.trace(f"number of results: {len(search_results)}", color=Colors.PURPLE)
+                except Exception as e:
+                    logger.info("op! got an exception searching the server", color=Colors.PURPLE)
+                    logger.info("setting search_results=[]", color=Colors.PURPLE)
+                    search_results=[]
+                for search_result in search_results:
+                    if not is_good_match(logger,
+                                         search_result,
+                                         music_file_path,
+                                         track.artist().title,
+                                         track.album().title): continue
+                    filtered_results.append(search_result)
+                logger.indent_decrease()
 
             num_results = len(filtered_results)
             logger.trace(f"number of matches: {num_results}", color=Colors.PURPLE, bold=num_results==1)
 
             if num_results == 1:
+                results[playlist.title.strip()]["tracks"].append(track)
                 logger.indent_decrease()
-                # TODO - add to playlist
                 continue
 
-
-            if num_results == 0:
-                no_match_baddies.append(music_file_path)
-                # TODO - allow for custom search?
-            else:
-                # there is more than one result!
-                # TODO - prompt user to select from list (or allow for custom search?)
-                baddie = {
-                    "file": music_file_path,
-                    "matches": []
-                }
-                logger.indent_increase()
-                for i in range(0, num_results):
-                    path = filtered_results[i].media[0].parts[0].file
-                    logger.debug(path, color=Colors.PURPLE)
-                    baddie["matches"].append(path)
-                baddies.append(baddie)
+            # no good match found! time to get interactive
+            resolution = prompt_for_resolution(logger, plex, music_file_path, filtered_results)
+            if resolution is not None:
+                results[playlist.title.strip()]["tracks"].append(resolution)
+                logger.info(f"selected {resolution}!")
                 logger.indent_decrease()
-            logger.indent_decrease()
+                continue;
 
-        if len(baddies) == 0 and len(no_match_baddies) == 0:
+            # best effort - put the bad track back in there (maybe to fix it manually in plex later? idk)
+            results[playlist.title.strip()]["tracks"].append(track)
+            results[playlist.title.strip()]["perfect"] = False
+            results[playlist.title.strip()]["discrepancies"].append(music_file_path)
+
+        if results[playlist.title.strip()]["perfect"]:
             logger.info('this playlist had all perfect matches!', color=Colors.GREEN)
-            results["playlists with perfect matches"].append(playlist.title)
             logger.debug("\n---\n")
             logger.indent_decrease()
             continue
 
-        results["playlists with discrepancies"].append({
-            "playlist": playlist.title,
-            "baddies_with_no_match": no_match_baddies,
-            "baddies": baddies
-        })
 
         logger.indent_decrease()
         logger.debug("\n---\n")
 
-    json_file = f"fix-playlists.{str(datetime.datetime.now()).replace(' ', '_')}.json"
-    with open(json_file, "w") as f:
-        json.dump(results, f, indent=2)
     log_file = logger.dump(file_name="fix-playlists", use_date_suffix=True)
 
     logger.info("all done! scope the logs")
     logger.info(f"json output: {json_file}")
     logger.info(f"log output: {log_file}")
+
+    for playlist_name in results.keys():
+        result = results["playlist_name"]
+        old_playlist = results.pop("playlist_object")
+        tracks = result["tracks"]
+        print(json.dumps(result, indent=2))
+
+        if not result["perfect"]:
+            logger.info("THIS PLAYLIST HAS BUSTED TRACKS STILL!!!", bold=True, color=Colors.RED)
+
+        new_playlist_name = playlist_name + " [FIXED]"
+        logger.info(f"would you like to create this playlist? name: '{new_playlist_name}'", bold=True, color=Colors.CYAN)
+        choice = ""
+        while choice not in ["y", "n"]:
+            choice = input("y/n: ")
+        if choice == "n": continue
+
+        plex.createPlaylist(new_playlist_name, tracks)
+        logger.info(f"'{new_playlist_name}' has been created!", bold=True, color=Colors.PURPLE)
+
+        logger.info(f"would you like to delete the old playlist? " +
+                     "name: '{old_playlist.title}'", bold=True, color=Colors.RED)
+        choice = ""
+        while choice not in ["y", "n"]:
+            choice = input("y/n: ")
+        if choice == "n": continue
+        old_playlist.delete()
+        logger.info(f"'{old_playlist.title}' has been deleted! farewell!", bold=True, color=Colors.RED)
+
+    # do this after the above loop because that playlist_object isn't serializable!
+    json_file = f"fix-playlists.{str(datetime.datetime.now()).replace(' ', '_')}.json"
+    with open(json_file, "w") as f:
+        json.dump(results, f, indent=2)
+
+    logger.info("that's it!")
+    logger.info("g'bye!")
     return True
 
 if __name__ == "__main__":

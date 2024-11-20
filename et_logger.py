@@ -33,7 +33,7 @@ def indent(logger):
     logger.indent_decrease()
 
 class Logger:
-    def __init__(self, level, indent_step=2):
+    def __init__(self, level=LogLevel.INFO, indent_step=2):
         if level < LogLevel.TRACE or level > LogLevel.INFO:
             raise Exception(f"Invalid LogLevel passed to Logger: {level}")
         self.LOG_LEVEL=level
