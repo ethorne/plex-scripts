@@ -1,0 +1,7 @@
+set_env.sh
+__pycache__/
+*.bak
+M3Us/
+*.m3u
+*.log
+*.json
