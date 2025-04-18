@@ -11,7 +11,7 @@ PLEX_URL = os.environ["PLEX_URL"].strip()
 PLEX_TOKEN = os.environ["PLEX_TOKEN"].strip()
 
 exlude_these_playlists = []
-include_these_playlists = ["ollie - hard rock", "ollie - soft rock", "ollie - synths n such"]
+include_these_playlists = ["boogie baddies for my water daddy"]
 
 EXISTING_PREFIX='/media/lucien/media'
 REPLACE_PREFIX='/Volumes/orpheus'
